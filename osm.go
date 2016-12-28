@@ -22,12 +22,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
 	"time"
-
-	"github.com/yinshuwei/utils"
 )
 
 const (
@@ -41,6 +40,10 @@ var (
 	// ShowSQL 显示执行的sql，用于调试，使用logger打印
 	ShowSQL = false
 )
+
+func SetLogger(lr *log.Logger) {
+	logger = lr
+}
 
 type dbRunner interface {
 	Prepare(query string) (*sql.Stmt, error)
@@ -75,13 +78,11 @@ type Tx struct {
 //如：
 //  o, err := osm.New("mysql", "root:root@/51jczj?charset=utf8", []string{"test.xml"})
 func New(driverName, dataSource string, xmlPaths []string, params ...int) (osm *Osm, err error) {
-	if logger == nil {
-		logger = log.New(utils.LogOutput, "[osm] ", utils.LogFlag)
-	}
+	//if logger == nil {
+	// 	logger = log.New(utils.LogOutput, "[osm] ", utils.LogFlag)
+	// }
 
-	osm = new(Osm)
 	db, err := sql.Open(driverName, dataSource)
-
 	if err != nil {
 		if db != nil {
 			db.Close()
@@ -97,15 +98,6 @@ func New(driverName, dataSource string, xmlPaths []string, params ...int) (osm *
 		return
 	}
 
-	switch driverName {
-	case "postgres":
-		osm.dbType = dbtypePostgres
-	default:
-		osm.dbType = dbtypeMysql
-	}
-	osm.db = db
-	osm.sqlMappersMap = make(map[string]*sqlMapper)
-
 	for i, v := range params {
 		switch i {
 		case 0:
@@ -114,6 +106,21 @@ func New(driverName, dataSource string, xmlPaths []string, params ...int) (osm *
 			db.SetMaxOpenConns(v)
 		}
 	}
+
+	return NewWith(driverName, db, xmlPaths)
+}
+
+func NewWith(driverName string, db *sql.DB, xmlPaths []string) (osm *Osm, err error) {
+	osm = &Osm{}
+
+	switch driverName {
+	case "postgres":
+		osm.dbType = dbtypePostgres
+	default:
+		osm.dbType = dbtypeMysql
+	}
+	osm.db = db
+	osm.sqlMappersMap = make(map[string]*sqlMapper)
 
 	osmXMLPaths := []string{}
 	for _, xmlPath := range xmlPaths {
@@ -499,18 +506,34 @@ func (o *osmBase) readSQLParams(id string, sqlType int, params ...interface{}) (
 				sqlParams = append(sqlParams, vv.Interface())
 			}
 		case kind == reflect.Map:
-			for _, paramName := range paramNames {
-				vv := v.MapIndex(reflect.ValueOf(paramName))
-				if vv.IsValid() {
-					if vv.Type().String() == "time.Time" {
-						sqlParams = append(sqlParams, timeFormat(vv.Interface().(time.Time), formatDateTime))
-					} else {
-						sqlParams = append(sqlParams, vv.Interface())
+			if paramValues, ok := param.(url.Values); ok {
+				for _, paramName := range paramNames {
+					vv := paramValues[paramName]
+					switch len(vv) {
+					case 0:
+						sqlParams = append(sqlParams, nil)
+						err = fmt.Errorf("sql '%s' error : '%s' no exist", sm.id, paramName)
+						return
+					case 1:
+						sqlParams = append(sqlParams, vv[0])
+					default:
+						sqlParams = append(sqlParams, vv)
 					}
-				} else {
-					sqlParams = append(sqlParams, nil)
-					err = fmt.Errorf("sql '%s' error : '%s' no exist", sm.id, paramName)
-					return
+				}
+			} else {
+				for _, paramName := range paramNames {
+					vv := v.MapIndex(reflect.ValueOf(paramName))
+					if vv.IsValid() {
+						if vv.Type().String() == "time.Time" {
+							sqlParams = append(sqlParams, timeFormat(vv.Interface().(time.Time), formatDateTime))
+						} else {
+							sqlParams = append(sqlParams, vv.Interface())
+						}
+					} else {
+						sqlParams = append(sqlParams, nil)
+						err = fmt.Errorf("sql '%s' error : '%s' no exist", sm.id, paramName)
+						return
+					}
 				}
 			}
 		case kind == reflect.Struct:

@@ -1,12 +1,16 @@
 package main
 
 import (
+	"os"
+
 	_ "github.com/lib/pq"
 	//_ "github.com/go-sql-driver/mysql"
-	"github.com/yinshuwei/osm"
-	"github.com/yinshuwei/utils"
+	//"github.com/yinshuwei/osm"
+	//"github.com/yinshuwei/utils"
 	"log"
 	"time"
+
+	"github.com/runner-mei/osm"
 )
 
 type ResUser struct {
@@ -28,10 +32,11 @@ type ResUser struct {
 }
 
 func main() {
-	osm.ShowSql = true
-	utils.SetLogFlags(log.Ldate | log.Lshortfile)
+	osm.ShowSQL = true
+	osm.SetLogger(log.New(os.Stderr, "[osm]", log.LstdFlags))
+	//utils.SetLogFlags(log.Ldate | log.Lshortfile)
 
-	o, err := osm.New("postgres", "host=db01 user=golang password=123456 dbname=golang sslmode=disable", []string{"test.xml"})
+	o, err := osm.New("postgres", "host=127.0.0.1 user=tpt password=extreme dbname=gobaties sslmode=disable", []string{"test.xml"})
 	//o, err := osm.New("mysql", "root:root@/test?charset=utf8", []string{"test.xml"})
 	if err != nil {
 		log.Println(err.Error())
